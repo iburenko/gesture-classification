@@ -1,6 +1,7 @@
 from os import path, listdir as ls
 import random
 from pathlib import PosixPath
+import logging
 
 from pytorch_lightning import LightningDataModule, LightningModule
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
@@ -8,6 +9,8 @@ import numpy as np
 from vidaug import augmentors as va
 import torch
 import cv2
+
+logger = logging.getLogger(__name__)
 
 
 class SnippetClassificationLightningDataset(LightningDataModule):
@@ -39,16 +42,19 @@ class SnippetClassificationLightningDataset(LightningDataModule):
         num_workers: int,
         subsample_rate: int,
         num_frames: int,
+        resize_to: int, 
         use_keypoints: int=0,
         ):
         assert isinstance(home, str) or isinstance(home, PosixPath)
         assert isinstance(batch_size, int) and batch_size > 0
         assert isinstance(num_workers, int) and num_workers >= 0
+        self.allow_zero_length_dataloader_with_multiple_devices = True
         self.home = home
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.use_keypoints = use_keypoints
         self.subsample_rate = subsample_rate
+        self.resize_to = resize_to
         self.num_frames = num_frames
         self.train_path = path.join(self.home, "train")
         self.train_data = SnippetClassificationDataset(
@@ -56,6 +62,7 @@ class SnippetClassificationLightningDataset(LightningDataModule):
             "train", 
             self.subsample_rate, 
             self.num_frames,
+            self.resize_to,
             self.use_keypoints
             )
         self.val_path = path.join(self.home, "val")
@@ -64,6 +71,7 @@ class SnippetClassificationLightningDataset(LightningDataModule):
             "val", 
             self.subsample_rate, 
             self.num_frames,
+            self.resize_to,
             self.use_keypoints
             )
         self.test_path = path.join(self.home, "test")
@@ -72,6 +80,7 @@ class SnippetClassificationLightningDataset(LightningDataModule):
             "test", 
             self.subsample_rate,
             self.num_frames,
+            self.resize_to,
             self.use_keypoints
             )
         self.prepare_data_per_node = False
@@ -116,10 +125,12 @@ class SnippetClassificationLightningDataset(LightningDataModule):
 
     def _get_weights(self):
         weights = [1] * len(self.train_data.data_list)        
-        gesture_path = path.join(self.train_path, "gesture")
-        nongesture_path = path.join(self.train_path, "nongesture")
-        gesture_len = len(ls(gesture_path))
-        nongesture_len = len(ls(nongesture_path))
+        nongesture_len = len(
+            [
+                elem for elem in self.train_data.data_list 
+                if "nongesture" in elem
+            ])
+        gesture_len = len(self.train_data) - nongesture_len
         gesture_weight = 1. / 2 / gesture_len
         nongesture_weight = 1. / 2 / nongesture_len
         for i, elem in enumerate(self.train_data.data_list):
@@ -160,6 +171,7 @@ class SnippetClassificationDataset(Dataset):
         split: list, 
         subsample_rate: int, 
         num_frames: int,
+        resize_to: int, 
         use_keypoints: int=0, 
         ):
         assert isinstance(home, str) or isinstance(home, PosixPath)
@@ -167,6 +179,7 @@ class SnippetClassificationDataset(Dataset):
         super().__init__()
         self.home = home
         self.split = split
+        self.resize_to = resize_to
         self.use_keypoints = use_keypoints
         self.subsample_rate = subsample_rate
         self.num_frames = num_frames
@@ -181,7 +194,7 @@ class SnippetClassificationDataset(Dataset):
         self.gesture_len = len(gesture_list)
         all_gestures = gesture_list + nongesture_list
         self.data_list = sorted(all_gestures, key=lambda x:x.split("/")[1])
-        self.transform = Augmentation(use_keypoints)
+        self.transform = Augmentation(resize_to, use_keypoints)
         
     def __len__(self):
         return len(self.data_list)
@@ -222,15 +235,16 @@ class Augmentation(LightningModule):
                 - 'only'.
     """
 
-    def __init__(self, use_keypoints=0):
+    def __init__(self, resize_to: int, use_keypoints: bool=0):
         super().__init__()
+        self.resize_to = resize_to
         self.use_keypoints = use_keypoints
         self.train_transforms = va.Sequential(
             [
-                self.channel_dropout,
-                va.RandomResize(rate=0.3),
-                va.RandomCrop(size=(224,224)),
-                self.coin_toss(va.RandomRotate(degrees=15)),
+                va.RandomCrop(size=(300, 300)),
+                # va.RandomResize(rate=.75),
+                self.resize_video,
+                self.coin_toss(va.RandomRotate(degrees=10)),
                 self.coin_toss(va.HorizontalFlip())
             ]
         )

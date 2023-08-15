@@ -1,5 +1,5 @@
 from torch.nn import BCEWithLogitsLoss
-from focal_loss.focal_loss import FocalLoss
+# from focal_loss.focal_loss import FocalLoss
 
 class LossFunction:
     def __init__(self, loss_function_name):

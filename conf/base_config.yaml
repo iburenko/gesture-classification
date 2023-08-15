@@ -1,0 +1,71 @@
+defaults:
+  - _self_
+  - model: resnet50_3d
+  - override hydra/launcher: submitit_slurm
+
+common:
+  fp16: true
+  seed: 34
+  fps: 29.97
+
+dataset:
+  path: /home/atuin/b105dc/data/datasets/ellen_show_datasets/ellen_show_length_1300_iou_thr_0.55
+  preprocessing:
+    subsample_rate: 1
+
+training:
+  epochs: 120
+  batch_size: 16
+  scheduler:
+    name: "multi-step-lr"
+    gamma: 0.2
+    steps:
+      - 50
+
+criterion:
+  name: bce
+
+optimiser:
+  name: Adam
+  learning_rate: ???
+  weight_decay: 1e-5
+
+distributed_training:
+  nodes: 1
+  gpus: 2
+  num_workers: 8
+  accumulate_batches: 1
+
+features:
+  use_keypoints: false
+
+checkpoints:
+  save_top_k: 1
+
+logging:
+  log_folder: "/home/atuin/b105dc/data/work/iburenko/logs/resnet50_3d/"
+  log_prefix: "${now:%d_%m_%Y}_${now:%H.%M.%S}"
+  log_name: "${model.architecture}_${criterion.name}_bs_${training.batch_size}"
+  full_path: "${logging.log_folder}${logging.log_prefix}_${logging.log_name}"
+
+augmentations:
+  resize_to: 112
+
+hydra:
+  job:
+    config:
+      override_dirname:
+        exclude_keys:
+          - optimiser
+  run:
+    dir: "${logging.full_path}"
+  sweep:
+    dir: ${logging.full_path}
+    subdir: "${hydra.job.num}_${hydra.job.override_dirname}"
+  launcher:
+    timeout_min: 600
+    nodes: 1
+    gres: "gpu:a100:${distributed_training.gpus}"
+    submitit_folder: "${logging.full_path}/slurm"
+    tasks_per_node: ${distributed_training.gpus}
+    name: "resnet50_3d_${hydra.job.name}"

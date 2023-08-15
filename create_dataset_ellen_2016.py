@@ -1,4 +1,4 @@
-from os import path
+from os import path, makedirs
 
 import numpy as np
 from moviepy.editor import VideoFileClip
@@ -15,28 +15,42 @@ FPS = 29.97
 # parser.add_argument('--threshold', type=float)
 # args = parser.parse_args()
 
+original_shows_path = (
+    "/home/atuin/b105dc/data/datasets/"
+    "ellen_show_datasets/all_ellen_shows_dates.txt"
+    )
+with open(original_shows_path, "r") as file:
+    original_shows_dates = file.readlines()
+original_shows_dates = [elem.strip()[1:-1] for elem in original_shows_dates]
+
 class args:
     tmpdir_home = "/scratch/b105dc10"
     data_path = (
         "/home/atuin/b105dc/data/datasets/"
-        "gestures/ellen_degeneres_2016_all_video_paths.txt"
+        "ellen_show_datasets/ellen_degeneres_2016_all_video_paths.txt"
     )
-    length_msec = 1300
-    threshold = 0.55
+    length_msec = 10000
 
 with open(args.data_path, 'r') as file:
     data = file.readlines()
 data = [elem.strip() for elem in data]
 
+original_shows_list = list()
+for elem in data:
+    original_show = any(show_date in elem for show_date in original_shows_dates)
+    if original_show:
+        original_shows_list.append(elem)
+
 node_path = args.tmpdir_home
-keypoints_home = path.join(node_path, 'publish')
 length_msec = args.length_msec
 
-home_path = path.join(node_path, "ellen_degeneres_2016_all_data")
+home_path = path.join(node_path, "ellen_degeneres_2016_all_data_300_frames")
+makedirs(path.join(home_path, "video"), exist_ok=True)
+makedirs(path.join(home_path, "audio"), exist_ok=True)
 
 def create_dataset(data):
     clip_length = length_msec/1000
-    file_pbar = tqdm(data)
+    file_pbar = tqdm(data, total=len(data))
     for fp in file_pbar:
         video_obj = VideoFileClip(fp)
         video_duration = np.floor(video_obj.duration).astype('int')
@@ -46,7 +60,7 @@ def create_dataset(data):
         file_pbar.set_description(
             f"Processing file {fn}"
         )
-        num_snippets = int(video_duration / clip_length) - 1
+        num_snippets = int(video_duration // clip_length)
         for i in tqdm(range(num_snippets), leave=False):
             start_sec, end_sec = i * clip_length, (i + 1) * clip_length
             subclip = video_obj.subclip(start_sec, end_sec)            
@@ -58,4 +72,4 @@ def create_dataset(data):
             subclip.audio.write_audiofile(audio_filename + ".wav", fps=16000, verbose=False, logger=None)
 
 if __name__ == "__main__":
-    create_dataset(data)
+    create_dataset(original_shows_list)
