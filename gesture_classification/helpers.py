@@ -1,9 +1,13 @@
 import os
+import sys
 import math
 
 import torch
 
 from .constants import FPS
+
+def LINE():
+    return sys._getframe(1).f_lineno
 
 def get_num_frames(dataset_path:str, subsample_rate:int) -> int:
     """

@@ -58,14 +58,14 @@ hydra:
         exclude_keys:
           - optimiser
   run:
-    dir: "${logging.full_path}"
+    dir: "${logging.full_path}/tensorboard/"
   sweep:
-    dir: ${logging.full_path}
+    dir: "${logging.full_path}/logs/"
     subdir: "${hydra.job.num}_${hydra.job.override_dirname}"
   launcher:
     timeout_min: 600
     nodes: 1
     gres: "gpu:a100:${distributed_training.gpus}"
-    submitit_folder: "${logging.full_path}/slurm"
+    submitit_folder: "${logging.full_path}/submitit_logs/"
     tasks_per_node: ${distributed_training.gpus}
     name: "resnet50_3d_${hydra.job.name}"

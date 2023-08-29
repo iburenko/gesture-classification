@@ -1,6 +1,7 @@
 import logging
+import sys
 
-# from timesformer.models.vit import TimeSformer
+from timesformer.models.vit import TimeSformer
 import pytorch_lightning as pl
 import torch
 from torch import nn
@@ -12,6 +13,7 @@ from torchmetrics.classification import (
     BinaryJaccardIndex, BinaryPrecision, BinaryRecall
 )
 from .models.resnet import ResEncoder
+from helpers import LINE
 
 logger = logging.getLogger(__name__)
 
@@ -230,5 +232,7 @@ class LitModel(pl.LightningModule):
                 ignore_mismatched_sizes=True
                 )
         elif model_name == "resnet50_3d":
+            pretrained_weights = torch.load("/home/hpc/b105dc/b105dc10/.cache/torch/hub/checkpoints/resnet50_a1_0-14fe96d1.pth")
             model = ResEncoder("prelu", None)
+            model.trunk.load_state_dict(pretrained_weights, strict=False)
         return model
