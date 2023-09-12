@@ -2,3 +2,4 @@ architecture: resnet50_3d
 in_channels: 3
 classes: 1
 pretrained: false
+use_audio: true

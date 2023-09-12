@@ -1,0 +1,4 @@
+name: multi-step-lr
+gamma: 0.2
+steps:
+  - 50

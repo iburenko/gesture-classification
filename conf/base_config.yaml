@@ -1,6 +1,7 @@
 defaults:
   - _self_
   - model: resnet50_3d
+  - scheduler: warmup
   - override hydra/launcher: submitit_slurm
 
 common:
@@ -9,31 +10,26 @@ common:
   fps: 29.97
 
 dataset:
-  path: /home/atuin/b105dc/data/datasets/ellen_show_datasets/ellen_show_length_1300_iou_thr_0.55
+  path: /home/atuin/b105dc/data/datasets/ellen_show_datasets/ellen_show_length_1300_iou_thr_0.55_video_and_audio
   preprocessing:
     subsample_rate: 1
 
 training:
-  epochs: 120
+  epochs: 220
   batch_size: 16
-  scheduler:
-    name: "multi-step-lr"
-    gamma: 0.2
-    steps:
-      - 50
 
 criterion:
   name: bce
 
 optimiser:
   name: Adam
-  learning_rate: ???
+  learning_rate: 1e-5
   weight_decay: 1e-5
 
 distributed_training:
   nodes: 1
-  gpus: 2
-  num_workers: 8
+  gpus: 4
+  num_workers: 16
   accumulate_batches: 1
 
 features:

@@ -1,19 +1,21 @@
 import logging
 import sys
 
-from timesformer.models.vit import TimeSformer
+# from timesformer.models.vit import TimeSformer
 import pytorch_lightning as pl
 import torch
 from torch import nn
 from torchvision import models
 from transformers import VideoMAEConfig, VideoMAEForVideoClassification
+from transformers import AutoProcessor
+from transformers.models.wav2vec2.modeling_wav2vec2 import Wav2Vec2Model
 from einops import rearrange
 from torchmetrics.classification import (
     BinaryAccuracy, BinaryF1Score,
     BinaryJaccardIndex, BinaryPrecision, BinaryRecall
 )
 from .models.resnet import ResEncoder
-from helpers import LINE
+from .helpers import LINE
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +51,8 @@ class LitModel(pl.LightningModule):
         loss_function_name, 
         focal_gamma,
         scheduler_name, 
-        scheduler_milestones, 
-        scheduler_gamma,
+        scheduler_params,
+        use_audio,
         use_keypoints,
         ):
         super().__init__()
@@ -60,11 +62,14 @@ class LitModel(pl.LightningModule):
         self.model = self.configure_model(
             model_name, use_keypoints, num_frames
             )
+        self.use_audio = use_audio
+        if self.use_audio:
+            self.audio_processor = AutoProcessor.from_pretrained("facebook/wav2vec2-base-960h")
+            self.audio_model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")
         self.normalize = self._normalize
         self.reshape = self._reshape
         self.scheduler_name = scheduler_name
-        self.scheduler_milestones = scheduler_milestones
-        self.scheduler_gamma = scheduler_gamma
+        self.scheduler_params = scheduler_params
         self.criterion = LossFunction(
             (loss_function_name, focal_gamma)).loss_function
         self.train_precision = BinaryPrecision()
@@ -78,6 +83,8 @@ class LitModel(pl.LightningModule):
         self.val_f1 = BinaryF1Score()
         self.val_iou = BinaryJaccardIndex()
         self.use_keypoints = use_keypoints
+        if self.use_audio:
+            self.linear = nn.Linear(2048+768, 1)
 
     def _normalize(self, x):
         if self.use_keypoints in [0, 1]:
@@ -91,16 +98,26 @@ class LitModel(pl.LightningModule):
             x = rearrange(x, "b t h w c -> b t c h w")
         return x
 
-    def forward(self, x):
-        logits = self.model(x)
+    def forward(self, video_data, audio_data):
+        logits = self.model(video_data)
         if self.model_name == "videomae":
             logits = logits.logits
+        if self.use_audio:
+            audio_data = [elem.tolist() for elem in audio_data]
+            inputs = self.audio_processor(audio_data, sampling_rate=16000, return_tensors="pt")
+            with torch.no_grad():
+                outputs = self.audio_model(inputs["input_values"].half().to('cuda'))
+            last_hidden_states = outputs.last_hidden_state
+            last_hidden_states = last_hidden_states.mean(axis=1)
+            last_hidden_states = torch.cat([logits, last_hidden_states], axis=-1)
+            last_hidden_states = self.linear(last_hidden_states)
+            return last_hidden_states
         return logits
 
     def training_step(self, batch, batch_idx) -> float:
-        x, y = batch
-        x = self.reshape(x)
-        y_hat = self(x)[:,0]
+        video_data, audio_data, y = batch
+        video_data = self.reshape(video_data)
+        y_hat = self(video_data, audio_data)[:,0]
         loss = self.criterion(y_hat, y.float())
         probs = torch.sigmoid(y_hat)
         train_acc = self.train_accuracy(probs, y)
@@ -129,9 +146,9 @@ class LitModel(pl.LightningModule):
         self.train_iou.reset()
 
     def validation_step(self, batch, batch_idx) -> dict:
-        x, y = batch
-        x = self.reshape(x)
-        y_hat = self(x)[:,0]
+        video_data, audio_data, y = batch
+        video_data = self.reshape(video_data)
+        y_hat = self(video_data, audio_data)[:,0]
         loss = self.criterion(y_hat, y.float())
         self.log("val_loss", loss, sync_dist=True)
         probs = torch.sigmoid(y_hat)
@@ -169,9 +186,6 @@ class LitModel(pl.LightningModule):
             )
         scheduler = self.configure_scheduler(
             optimizer, 
-            self.scheduler_name,
-            self.scheduler_milestones, 
-            self.scheduler_gamma
         )
         return {
             "optimizer": optimizer,
@@ -185,17 +199,29 @@ class LitModel(pl.LightningModule):
     def configure_scheduler(
             self, 
             optimizer,
-            scheduler_name, 
-            scheduler_milstones,
-            scheduler_gamma
             ):
-        params = {
-            "optimizer": optimizer,
-            "milestones": scheduler_milstones,
-            "gamma": scheduler_gamma
-        }
-        if scheduler_name == "multi-step-lr":
+        if self.scheduler_name == "multi-step-lr":
+            params = {
+                "optimizer": optimizer,
+                "milestones": self.scheduler_params.steps,
+                "gamma": self.scheduler_params.gamma
+            }
             scheduler = torch.optim.lr_scheduler.MultiStepLR(**params)
+        elif self.scheduler_name == "warmup":
+            linear = torch.optim.lr_scheduler.LinearLR(
+                optimizer,
+                start_factor=1e-3,
+                total_iters=20
+            )
+            exponential = torch.optim.lr_scheduler.ExponentialLR(
+                optimizer,
+                gamma=0.96
+            )
+            scheduler = torch.optim.lr_scheduler.SequentialLR(
+                optimizer,
+                schedulers=[linear, exponential],
+                milestones=[20]
+            )
         return scheduler
 
     def configure_model(
@@ -235,4 +261,5 @@ class LitModel(pl.LightningModule):
             pretrained_weights = torch.load("/home/hpc/b105dc/b105dc10/.cache/torch/hub/checkpoints/resnet50_a1_0-14fe96d1.pth")
             model = ResEncoder("prelu", None)
             model.trunk.load_state_dict(pretrained_weights, strict=False)
+            logger.info(model)
         return model

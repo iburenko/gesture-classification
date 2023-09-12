@@ -92,6 +92,9 @@ def get_label(csv_data, start_interval, end_interval, thr):
         return True
     else:
         return False
+    
+# def get_label_list(csv_data, start_interval, end_interval):
+
 
 def subclip2tensor(subclip, num_frames):
     frame_tensor = np.zeros((num_frames, 320, 320, 3))

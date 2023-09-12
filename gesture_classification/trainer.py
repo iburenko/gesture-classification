@@ -19,7 +19,11 @@ slurm_job_id = os.getenv("SLURM_JOB_ID")
 start_time = strftime("%d_%m_%Y_%H:%M:%S", localtime())
 
 def trainer(cfg):
+    logger = logging.getLogger(__name__)
+    logger.info(cfg)
     model_name = cfg.model.architecture
+
+    use_audio = cfg.model.use_audio
 
     precision = "bf16-mixed" if cfg.common.fp16 else 32
     SEED = cfg.common.seed
@@ -29,9 +33,9 @@ def trainer(cfg):
 
     epochs = cfg.training.epochs
     batch_size = cfg.training.batch_size
-    scheduler_name = cfg.training.scheduler.name
-    scheduler_milestiones = cfg.training.scheduler.steps
-    scheduler_gamma = cfg.training.scheduler.gamma
+
+    scheduler_name = cfg.scheduler.name
+    scheduler_params = cfg.scheduler
 
     loss_function_name = cfg.criterion.name
 
@@ -57,6 +61,7 @@ def trainer(cfg):
     seed_everything(SEED, workers=True)
     
     num_frames = get_num_frames(dataset_home, subsample_rate)
+    logger.info(num_frames)
     accelerator = get_accelerator()
     dm = SnippetClassificationLightningDataset(
         dataset_home,
@@ -65,6 +70,7 @@ def trainer(cfg):
         subsample_rate,
         num_frames,
         resize_to,
+        use_audio, 
         use_keypoints,
         )
     model = LitModel(
@@ -75,8 +81,8 @@ def trainer(cfg):
         loss_function_name,
         focal_gamma,
         scheduler_name,
-        scheduler_milestiones,
-        scheduler_gamma,
+        scheduler_params,
+        use_audio,
         use_keypoints
         )
     model.save_hyperparameters(cfg)
@@ -88,7 +94,7 @@ def trainer(cfg):
         save_top_k=save_top_k, mode="max", monitor="val_acc",
         filename="checkpoint-{epoch:02d}-{val_acc:.2f}"
         )
-    lr_monitor = LearningRateMonitor(logging_interval="step")
+    lr_monitor = LearningRateMonitor(logging_interval="epoch")
     logger = TensorBoardLogger(
         name=f"id_{slurm_job_id}_{start_time}_{logger_name}",
         save_dir=logger_folder)
@@ -97,7 +103,7 @@ def trainer(cfg):
         devices=gpus,
         num_nodes=nodes,
         max_epochs=epochs,
-        strategy=DDPStrategy(find_unused_parameters=False),
+        strategy=DDPStrategy(find_unused_parameters=True),
         precision=precision,
         enable_progress_bar=False,
         callbacks=[checkpoint_f1, checkpoint_acc, lr_monitor],
@@ -107,8 +113,3 @@ def trainer(cfg):
         )
     trainer.fit(model, datamodule=dm)
 
-def foo(cfg):
-    logger.info(cfg)
-    logger.info("END!!!")
-    return 0
-    

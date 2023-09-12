@@ -9,6 +9,8 @@ import numpy as np
 from vidaug import augmentors as va
 import torch
 import cv2
+from moviepy.editor import VideoFileClip
+from scipy.io import wavfile
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +45,7 @@ class SnippetClassificationLightningDataset(LightningDataModule):
         subsample_rate: int,
         num_frames: int,
         resize_to: int, 
+        use_audio: int,
         use_keypoints: int=0,
         ):
         assert isinstance(home, str) or isinstance(home, PosixPath)
@@ -50,8 +53,10 @@ class SnippetClassificationLightningDataset(LightningDataModule):
         assert isinstance(num_workers, int) and num_workers >= 0
         self.allow_zero_length_dataloader_with_multiple_devices = True
         self.home = home
+        logger.info(self.home)
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.use_audio = use_audio
         self.use_keypoints = use_keypoints
         self.subsample_rate = subsample_rate
         self.resize_to = resize_to
@@ -63,6 +68,7 @@ class SnippetClassificationLightningDataset(LightningDataModule):
             self.subsample_rate, 
             self.num_frames,
             self.resize_to,
+            self.use_audio,
             self.use_keypoints
             )
         self.val_path = path.join(self.home, "val")
@@ -72,17 +78,19 @@ class SnippetClassificationLightningDataset(LightningDataModule):
             self.subsample_rate, 
             self.num_frames,
             self.resize_to,
+            self.use_audio,
             self.use_keypoints
             )
-        self.test_path = path.join(self.home, "test")
-        self.test_data = SnippetClassificationDataset(
-            self.test_path, 
-            "test", 
-            self.subsample_rate,
-            self.num_frames,
-            self.resize_to,
-            self.use_keypoints
-            )
+        # self.test_path = path.join(self.home, "test")
+        # self.test_data = SnippetClassificationDataset(
+        #     self.test_path, 
+        #     "test", 
+        #     self.subsample_rate,
+        #     self.num_frames,
+        #     self.resize_to,
+        #     self.use_audio,
+        #     self.use_keypoints
+        #     )
         self.prepare_data_per_node = False
         self._log_hyperparams = False
 
@@ -106,7 +114,7 @@ class SnippetClassificationLightningDataset(LightningDataModule):
     def val_dataloader(self):
         val_loader = DataLoader(
             self.val_data,
-            batch_size=4 * self.batch_size,
+            batch_size=4*self.batch_size,
             num_workers=self.num_workers,
             shuffle=False,
             pin_memory=True
@@ -116,7 +124,7 @@ class SnippetClassificationLightningDataset(LightningDataModule):
     def test_dataloader(self):
         test_loader = DataLoader(
             self.test_data,
-            batch_size=4 * self.batch_size,
+            batch_size=4*self.batch_size,
             num_workers=self.num_workers,
             shuffle=False,
             pin_memory=True
@@ -172,6 +180,7 @@ class SnippetClassificationDataset(Dataset):
         subsample_rate: int, 
         num_frames: int,
         resize_to: int, 
+        use_audio: int, 
         use_keypoints: int=0, 
         ):
         assert isinstance(home, str) or isinstance(home, PosixPath)
@@ -183,6 +192,7 @@ class SnippetClassificationDataset(Dataset):
         self.use_keypoints = use_keypoints
         self.subsample_rate = subsample_rate
         self.num_frames = num_frames
+        self.use_audio = use_audio
         gesture_path = path.join(self.home, "gesture")
         nongesture_path = path.join(self.home, "nongesture")
         gesture_list = [
@@ -191,6 +201,8 @@ class SnippetClassificationDataset(Dataset):
         nongesture_list = [
             "nongesture/" + elem for elem in ls(nongesture_path)
         ]
+        gesture_list = list({elem[:-3] for elem in gesture_list})
+        nongesture_list = list({elem[:-3] for elem in nongesture_list})
         self.gesture_len = len(gesture_list)
         all_gestures = gesture_list + nongesture_list
         self.data_list = sorted(all_gestures, key=lambda x:x.split("/")[1])
@@ -202,8 +214,11 @@ class SnippetClassificationDataset(Dataset):
     def __getitem__(self, idx):
         full_item_path = path.join(self.home, self.data_list[idx])
         label = 0 if "nongesture" in self.data_list[idx] else 1
-        data = np.load(full_item_path)
-        data = dict(data)
+        if self.use_audio:
+            data = self._load_audio_video_item(full_item_path)
+        else:
+            data = self._load_npz_item(full_item_path)
+        audio_data = data["audio"] if self.use_audio else np.zeros(1)
         if self.use_keypoints == 0:
             data = data["video"]/255
         elif self.use_keypoints == 1:
@@ -221,7 +236,32 @@ class SnippetClassificationDataset(Dataset):
         else:
             len_data = len(data)
         data = data.astype("float32")[:len_data:self.subsample_rate]
-        return data, label
+        return data, audio_data, label
+    
+    def _load_npz_item(self, full_item_path):
+        data = np.load(full_item_path+"npz")
+        data = dict(data)
+        return data
+
+    def _load_audio_video_item(self, full_item_path):
+        audio_fp = full_item_path + "wav"
+        video_fp = full_item_path + "mp4"
+        sr, audio_data = wavfile.read(audio_fp)
+        if len(audio_data.shape) == 2:
+            audio_data = audio_data.mean(axis=1)
+        if len(audio_data) == 20800:
+            audio_data = audio_data[:-1]        
+        video = VideoFileClip(video_fp)
+        number_of_frames = int(np.ceil(video.fps * video.duration))
+        video_data = np.zeros((number_of_frames, 320, 320, 3))
+        for i, frame in enumerate(video.iter_frames()):
+            frame = cv2.resize(frame, (320, 320)).astype('uint8')
+            video_data[i] = frame
+        return {
+            "audio": audio_data,
+            "video": video_data
+        }
+
 
 class Augmentation(LightningModule):
     """
