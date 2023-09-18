@@ -4,6 +4,10 @@ import math
 
 import torch
 
+from .datasets import (
+    SnippetClassificationLightningDataset,
+    FrameBasedClassificationLightningDataset
+)
 from .constants import FPS
 
 def LINE():
@@ -66,3 +70,45 @@ def parse_use_keypoints(use_keypoints_input):
         if use_keypoints_input == 1:
             use_keypoints = True
     return use_keypoints
+
+def get_dm(
+        frame_based,
+        data_home,
+        target_size,
+        use_audio,
+        batch_size,
+        num_workers,
+        *args,
+        **kwargs
+        ):
+    if frame_based:
+        split_path = kwargs["cfg"].dataset.split_path
+        csv_home = kwargs["cfg"].dataset.csv_home
+        snippet_len = kwargs["cfg"].dataset.snippet_len
+        dm = FrameBasedClassificationLightningDataset(
+            data_home,
+            split_path,
+            csv_home,
+            use_audio=use_audio,
+            snippet_len=snippet_len,
+            target_size=target_size,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            train_steps=kwargs["cfg"].training.train_steps,
+            val_steps=kwargs["cfg"].training.val_steps,
+        )
+    else:
+        subsample_rate = kwargs["cfg"].dataset.preprocessing.subsample_rate
+        num_frames = get_num_frames(data_home, subsample_rate)
+        use_keypoints = parse_use_keypoints(kwargs["cfg"].features.use_keypoints)
+        dm = SnippetClassificationLightningDataset(
+            data_home,
+            batch_size,
+            num_workers,
+            subsample_rate,
+            num_frames,
+            target_size,
+            use_audio, 
+            use_keypoints,
+        )
+    return dm

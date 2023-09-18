@@ -7,10 +7,9 @@ from pytorch_lightning.strategies import DDPStrategy
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.loggers import TensorBoardLogger
-from gesture_classification.datasets import SnippetClassificationLightningDataset
 from gesture_classification.model import LitModel
 from gesture_classification.helpers import (
-    get_num_frames, get_accelerator, parse_use_keypoints
+    get_num_frames, get_accelerator, parse_use_keypoints, get_dm
 )
 
 logger = logging.getLogger(__name__)
@@ -22,13 +21,14 @@ def trainer(cfg):
     logger = logging.getLogger(__name__)
     logger.info(cfg)
     model_name = cfg.model.architecture
+    pretrained = cfg.model.pretrained
 
     use_audio = cfg.model.use_audio
 
     precision = "bf16-mixed" if cfg.common.fp16 else 32
     SEED = cfg.common.seed
     
-    dataset_home = cfg.dataset.path
+    data_home = cfg.dataset.path
     subsample_rate = cfg.dataset.preprocessing.subsample_rate
 
     epochs = cfg.training.epochs
@@ -54,27 +54,30 @@ def trainer(cfg):
     logger_name = cfg.logging.log_name
     logger_folder = cfg.logging.full_path
 
-    resize_to = cfg.augmentations.resize_to
+    target_size = (cfg.augmentations.target_size,)*2
 
     focal_gamma = 1
 
     seed_everything(SEED, workers=True)
     
-    num_frames = get_num_frames(dataset_home, subsample_rate)
-    logger.info(num_frames)
     accelerator = get_accelerator()
-    dm = SnippetClassificationLightningDataset(
-        dataset_home,
+    frame_based = cfg.dataset.frame_based
+    if not frame_based:
+        num_frames = get_num_frames(data_home, subsample_rate)
+    else:
+        num_frames = 300
+    dm = get_dm(
+        frame_based,
+        data_home,
+        target_size,
+        use_audio, 
         batch_size,
         num_workers,
-        subsample_rate,
-        num_frames,
-        resize_to,
-        use_audio, 
-        use_keypoints,
+        cfg=cfg
         )
     model = LitModel(
         model_name,
+        pretrained,
         num_frames,
         learning_rate,
         weight_decay,

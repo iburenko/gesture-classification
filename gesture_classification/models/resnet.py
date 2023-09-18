@@ -173,7 +173,7 @@ class ResNet(nn.Module):
         return x
 
 class ResEncoder(nn.Module):
-    def __init__(self, relu_type, weights):
+    def __init__(self, relu_type, weights, num_frames):
         super(ResEncoder, self).__init__()
         self.frontend_nout = 64
         self.backend_out = 2048
@@ -197,7 +197,7 @@ class ResEncoder(nn.Module):
                 )
             )
         self.trunk = ResNet(BasicBlock50, [3,4,6,3], relu_type=relu_type)
-        self.avg_pool = nn.AvgPool1d(kernel_size=39)
+        self.avg_pool = nn.AvgPool1d(kernel_size=num_frames)
         if weights is not None:
             logger.info(f"Load {weights} for resnet")
             std = torch.load(weights, map_location=torch.device('cpu'))['model_state_dict']

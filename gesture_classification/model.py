@@ -1,5 +1,5 @@
 import logging
-import sys
+import gc
 
 # from timesformer.models.vit import TimeSformer
 import pytorch_lightning as pl
@@ -44,23 +44,24 @@ class LitModel(pl.LightningModule):
 
     def __init__(
         self, 
-        model_name, 
-        num_frames, 
-        learning_rate, 
-        weight_decay, 
-        loss_function_name, 
-        focal_gamma,
-        scheduler_name, 
-        scheduler_params,
-        use_audio,
-        use_keypoints,
+        model_name: str, 
+        pretrained: bool, 
+        num_frames: int, 
+        learning_rate: float, 
+        weight_decay: float, 
+        loss_function_name: str, 
+        focal_gamma: float,
+        scheduler_name: str, 
+        scheduler_params: dict,
+        use_audio: bool,
+        use_keypoints: bool,
         ):
         super().__init__()
         self.model_name = model_name
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.model = self.configure_model(
-            model_name, use_keypoints, num_frames
+            model_name, use_keypoints, num_frames, pretrained
             )
         self.use_audio = use_audio
         if self.use_audio:
@@ -115,6 +116,7 @@ class LitModel(pl.LightningModule):
         return logits
 
     def training_step(self, batch, batch_idx) -> float:
+        logger.info(batch_idx)
         video_data, audio_data, y = batch
         video_data = self.reshape(video_data)
         y_hat = self(video_data, audio_data)[:,0]
@@ -125,7 +127,7 @@ class LitModel(pl.LightningModule):
         train_rec = self.train_recall(probs, y)
         train_f1 = self.train_f1(probs, y)
         train_iou = self.train_iou(probs, y)
-        self.log("train_loss", loss, on_epoch=True, sync_dist=True)
+        self.log("train_loss", loss, on_epoch=True, sync_dist=True, on_step=True)
         # self.log("train_acc_step", train_acc)
         # self.log("train_prec_step", train_prec)
         # self.log("train_rec_step", train_rec)
@@ -144,6 +146,7 @@ class LitModel(pl.LightningModule):
         self.train_recall.reset()
         self.train_f1.reset()
         self.train_iou.reset()
+        logger.info("train epoch finished")
 
     def validation_step(self, batch, batch_idx) -> dict:
         video_data, audio_data, y = batch
@@ -177,6 +180,9 @@ class LitModel(pl.LightningModule):
         self.val_recall.reset()
         self.val_f1.reset()
         self.val_iou.reset()
+        torch.cuda.empty_cache()
+        gc.collect()
+        logger.info("train epoch finished")
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
@@ -225,7 +231,7 @@ class LitModel(pl.LightningModule):
         return scheduler
 
     def configure_model(
-            self, model_name, use_keypoints, num_frames):
+            self, model_name, use_keypoints, num_frames, pretrained=True):
         if use_keypoints == False:
             in_chans = 3
         elif use_keypoints == True:
@@ -258,8 +264,8 @@ class LitModel(pl.LightningModule):
                 ignore_mismatched_sizes=True
                 )
         elif model_name == "resnet50_3d":
-            pretrained_weights = torch.load("/home/hpc/b105dc/b105dc10/.cache/torch/hub/checkpoints/resnet50_a1_0-14fe96d1.pth")
-            model = ResEncoder("prelu", None)
-            model.trunk.load_state_dict(pretrained_weights, strict=False)
-            logger.info(model)
+            model = ResEncoder("prelu", None, num_frames)
+            if pretrained:
+                pretrained_weights = torch.load("/home/hpc/b105dc/b105dc10/.cache/torch/hub/checkpoints/resnet50_a1_0-14fe96d1.pth")
+                model.trunk.load_state_dict(pretrained_weights, strict=False)
         return model

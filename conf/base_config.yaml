@@ -1,8 +1,8 @@
 defaults:
   - _self_
   - model: resnet50_3d
-  - scheduler: warmup
-  - override hydra/launcher: submitit_slurm
+  - scheduler: multi_step
+  - override hydra/launcher: basic
 
 common:
   fp16: true
@@ -10,25 +10,32 @@ common:
   fps: 29.97
 
 dataset:
-  path: /home/atuin/b105dc/data/datasets/ellen_show_datasets/ellen_show_length_1300_iou_thr_0.55_video_and_audio
+  frame_based: true
+  # path: /home/atuin/b105dc/data/datasets/ellen_show_datasets/ellen_show_length_1300_iou_thr_0.55_video_and_audio
+  path: /home/atuin/b105dc/data/datasets/ellen_show_datasets/full_dataset_30_videos_yao_and_suwei/30_videos
   preprocessing:
     subsample_rate: 1
+  snippet_len: 10
+  csv_home: /home/titan/sles/sles000h/input_files_ellen_with_csv
+  split_path: /home/atuin/b105dc/data/datasets/ellen_show_datasets/split.json
 
 training:
   epochs: 220
-  batch_size: 16
+  batch_size: 8
+  train_steps: 1024
+  val_steps: 256
 
 criterion:
   name: bce
 
 optimiser:
   name: Adam
-  learning_rate: 1e-5
+  learning_rate: 1e-4
   weight_decay: 1e-5
 
 distributed_training:
   nodes: 1
-  gpus: 4
+  gpus: 1
   num_workers: 16
   accumulate_batches: 1
 
@@ -45,7 +52,7 @@ logging:
   full_path: "${logging.log_folder}${logging.log_prefix}_${logging.log_name}"
 
 augmentations:
-  resize_to: 112
+  target_size: 112
 
 hydra:
   job:
@@ -58,10 +65,10 @@ hydra:
   sweep:
     dir: "${logging.full_path}/logs/"
     subdir: "${hydra.job.num}_${hydra.job.override_dirname}"
-  launcher:
-    timeout_min: 600
-    nodes: 1
-    gres: "gpu:a100:${distributed_training.gpus}"
-    submitit_folder: "${logging.full_path}/submitit_logs/"
-    tasks_per_node: ${distributed_training.gpus}
-    name: "resnet50_3d_${hydra.job.name}"
+  # launcher:
+    # timeout_min: 600
+    # nodes: 1
+    # gres: "gpu:a100:${distributed_training.gpus}"
+    # submitit_folder: "${logging.full_path}/submitit_logs/"
+    # tasks_per_node: ${distributed_training.gpus}
+    # name: "resnet50_3d_${hydra.job.name}"
