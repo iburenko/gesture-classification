@@ -82,3 +82,9 @@ Run training with the following command:
 ## Training details
 
 There is a learning rate scheduler that divides the initial learning rate by 5 at the 35th and 80th epochs. It is not configurable in the current version of the code.
+
+## Masking and Optical Flow
+These folders contain the files for the experiment of gesture detection with the incorporation of both masking and optical flow respectively.
+
+## Miscallaneous
+This folder contains various script for the testing and analysis involved in the project.
