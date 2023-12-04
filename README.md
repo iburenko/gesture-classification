@@ -82,3 +82,21 @@ Run training with the following command:
 ## Training details
 
 There is a learning rate scheduler that divides the initial learning rate by 5 at the 35th and 80th epochs. It is not configurable in the current version of the code.
+
+## Masking and Optical Flow
+These folders contain the files for the experiment of gesture detection with the incorporation of both masking and optical flow respectively.
+
+## Miscallaneous
+This folder contains various scripts for the testing and analysis involved in the project.
+
+-- Create_dataset_without_na_layer - This script is to create the dataset by removing the commercials and other non applicable data from the dataset and create the train, test and validation sets
+
+-- FN_FP_Analysis - This file dives into the analysis of predictions by various models and its distributions.
+
+-- Mapping_prediction_to_ELAN - This file helps to write the predictions by model to ELAN tool.
+
+-- Mean_and_standard_deviation - This file is about the mean and standard deviation for the various trials in the project
+
+-- SophieCo_data - This file is about the testing of model on Sophieco dataset.
+
+-- Testing_and_analsysis - This file is about the testing and analysis of various models
